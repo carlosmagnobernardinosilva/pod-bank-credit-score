@@ -59,7 +59,6 @@ pod-bank-credit-score/
 │
 ├── data/                          # Dados (não versionados - ver .gitignore)
 │   ├── raw/                       # Dados brutos, exatamente como recebidos
-│   ├── interim/                   # Dados intermediários após limpeza inicial
 │   └── processed/                 # Dados finais prontos para modelagem
 │
 ├── notebooks/                     # Notebooks Jupyter por fase do CRISP-DM
