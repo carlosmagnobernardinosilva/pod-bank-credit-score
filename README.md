@@ -123,7 +123,7 @@ pod-bank-credit-score/
 
 ```bash
 # Clone o repositório
-git clone <url-do-repositorio>
+git clone <[url-do-repositorio](https://github.com/carlosmagnobernardinosilva/pod-bank-credit-score/tree/main)>
 cd pod-bank-credit-score
 
 # Crie e ative o ambiente virtual
