@@ -148,7 +148,7 @@ Business Understanding → Data Understanding → Data Preparation
 ```
 ---
 Link Resultados finais StreamLit: https://pod-bank-credit-score.streamlit.app/simulador
-```
+
 
 
 
