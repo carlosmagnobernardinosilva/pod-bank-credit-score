@@ -147,8 +147,5 @@ Business Understanding → Data Understanding → Data Preparation
    Deployment          ←      Evaluation      ←   Modeling
 ```
 
-Cada fase possui notebooks dedicados em `notebooks/` e código reutilizável em `src/`.
 
----
 
-*Projeto desenvolvido para a PoD Bank — Inclusão financeira com inteligência de dados.*
