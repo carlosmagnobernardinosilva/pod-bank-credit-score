@@ -1,8 +1,8 @@
 """
 02_simulador.py — PoD Bank Credit Score — Simulador de Score Individual
 """
+import os
 import time
-from pathlib import Path
 
 import joblib
 import numpy as np
@@ -18,9 +18,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PIPELINE_PATH = PROJECT_ROOT / "models" / "scoring_pipeline.pkl"
-FALLBACK_PATH = PROJECT_ROOT / "models" / "lightgbm_tuned.pkl"
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MODEL_PATH = os.path.join(ROOT, "models", "lightgbm_tuned.pkl")
+PIPELINE_PATH = os.path.join(ROOT, "models", "scoring_pipeline.pkl")
+DATA_PATH = os.path.join(ROOT, "data", "processed", "train_final.parquet")
+REPORTS_PATH = os.path.join(ROOT, "reports", "figures")
 THRESHOLD = 0.48
 
 # ── Carregar modelo ───────────────────────────────────────────────────────────
@@ -31,13 +33,13 @@ def load_pipeline():
     Extrai o mapeamento de colunas categóricas do booster para garantir
     compatibilidade exata com o treinamento.
     """
-    if PIPELINE_PATH.exists():
+    if os.path.exists(PIPELINE_PATH):
         artifact = joblib.load(PIPELINE_PATH)
         model = artifact["model"]
         feature_columns = artifact["feature_columns"]
         source = f"scoring_pipeline.pkl (v{artifact.get('version', '?')})"
-    elif FALLBACK_PATH.exists():
-        model = joblib.load(FALLBACK_PATH)
+    elif os.path.exists(MODEL_PATH):
+        model = joblib.load(MODEL_PATH)
         try:
             feature_columns = model.booster_.feature_name()
         except AttributeError:
@@ -52,9 +54,7 @@ def load_pipeline():
         dump = model.booster_.dump_model()
         pandas_categorical = dump.get("pandas_categorical", [])
         # Identificar quais feature_columns são categóricas lendo uma linha do parquet
-        df_ref = pd.read_parquet(
-            PROJECT_ROOT / "data" / "processed" / "train_final.parquet"
-        ).head(1)
+        df_ref = pd.read_parquet(DATA_PATH).head(1)
         cat_cols_ordered = [
             c for c in feature_columns
             if c in df_ref.columns and str(df_ref[c].dtype) in ("object", "category")

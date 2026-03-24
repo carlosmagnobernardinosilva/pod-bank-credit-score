@@ -2,10 +2,15 @@
 dashboard.py — PoD Bank Credit Score — Página principal
 """
 import os
-from pathlib import Path
 
 import plotly.graph_objects as go
 import streamlit as st
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATH = os.path.join(ROOT, "models", "lightgbm_tuned.pkl")
+PIPELINE_PATH = os.path.join(ROOT, "models", "scoring_pipeline.pkl")
+DATA_PATH = os.path.join(ROOT, "data", "processed", "train_final.parquet")
+REPORTS_PATH = os.path.join(ROOT, "reports", "figures")
 
 # ── Config ──────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -14,9 +19,6 @@ st.set_page_config(
     page_icon="🏦",
     initial_sidebar_state="expanded",
 )
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-FIGURES_DIR = PROJECT_ROOT / "reports" / "figures"
 
 # ── Estilos ──────────────────────────────────────────────────────────────────
 st.markdown(
@@ -118,13 +120,13 @@ st.markdown('<div class="section-title">Curvas de Diagnóstico do Modelo</div>',
 
 col_roc, col_ks = st.columns(2)
 
-roc_path = FIGURES_DIR / "roc_curve.png"
-ks_path = FIGURES_DIR / "ks_curve.png"
+roc_path = os.path.join(REPORTS_PATH, "roc_curve.png")
+ks_path = os.path.join(REPORTS_PATH, "ks_curve.png")
 
 with col_roc:
     st.markdown("**Curva ROC**")
-    if roc_path.exists():
-        st.image(str(roc_path), use_container_width=True)
+    if os.path.exists(roc_path):
+        st.image(roc_path, use_container_width=True)
     else:
         # Curva ROC simulada para demonstração
         import numpy as np
@@ -144,8 +146,8 @@ with col_roc:
 
 with col_ks:
     st.markdown("**Curva KS**")
-    if ks_path.exists():
-        st.image(str(ks_path), use_container_width=True)
+    if os.path.exists(ks_path):
+        st.image(ks_path, use_container_width=True)
     else:
         import numpy as np
         pct = np.linspace(0, 1, 200)
@@ -198,20 +200,20 @@ with col_fi:
     st.plotly_chart(fig_fi, use_container_width=True)
 
 with col_fi_img:
-    fi_img = FIGURES_DIR / "lightgbm_tuned_feature_importance.png"
-    if fi_img.exists():
+    fi_img = os.path.join(REPORTS_PATH, "lightgbm_tuned_feature_importance.png")
+    if os.path.exists(fi_img):
         st.markdown("**Feature Importance (modelo salvo)**")
-        st.image(str(fi_img), use_container_width=True)
+        st.image(fi_img, use_container_width=True)
     else:
-        fi_img2 = FIGURES_DIR / "feature_importance_final.png"
-        if fi_img2.exists():
-            st.image(str(fi_img2), use_container_width=True)
+        fi_img2 = os.path.join(REPORTS_PATH, "feature_importance_final.png")
+        if os.path.exists(fi_img2):
+            st.image(fi_img2, use_container_width=True)
 
 # ── Distribuição de Scores ────────────────────────────────────────────────────
-score_dist_path = FIGURES_DIR / "score_distribution.png"
-if score_dist_path.exists():
+score_dist_path = os.path.join(REPORTS_PATH, "score_distribution.png")
+if os.path.exists(score_dist_path):
     st.markdown('<div class="section-title">Distribuição de Scores na Base</div>', unsafe_allow_html=True)
-    st.image(str(score_dist_path), use_container_width=True)
+    st.image(score_dist_path, use_container_width=True)
 
 # ── Nota metodológica ────────────────────────────────────────────────────────
 st.markdown(

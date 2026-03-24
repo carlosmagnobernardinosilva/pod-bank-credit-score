@@ -1,7 +1,7 @@
 """
 03_carteira.py — PoD Bank Credit Score — Análise de Carteira
 """
-from pathlib import Path
+import os
 
 import joblib
 import numpy as np
@@ -17,11 +17,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PIPELINE_PATH = PROJECT_ROOT / "models" / "scoring_pipeline.pkl"
-FALLBACK_PATH = PROJECT_ROOT / "models" / "lightgbm_tuned.pkl"
-TRAIN_PATH = PROJECT_ROOT / "data" / "processed" / "train_final.parquet"
-FIGURES_DIR = PROJECT_ROOT / "reports" / "figures"
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+MODEL_PATH = os.path.join(ROOT, "models", "lightgbm_tuned.pkl")
+PIPELINE_PATH = os.path.join(ROOT, "models", "scoring_pipeline.pkl")
+DATA_PATH = os.path.join(ROOT, "data", "processed", "train_final.parquet")
+REPORTS_PATH = os.path.join(ROOT, "reports", "figures")
 THRESHOLD = 0.48
 SAMPLE_N = 10_000
 
@@ -56,13 +56,13 @@ st.markdown("---")
 # ── Carregar pipeline ─────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Carregando modelo...")
 def load_pipeline():
-    if PIPELINE_PATH.exists():
+    if os.path.exists(PIPELINE_PATH):
         art = joblib.load(PIPELINE_PATH)
         model = art["model"]
         feature_columns = art["feature_columns"]
         source = f"scoring_pipeline.pkl (v{art.get('version','?')})"
-    elif FALLBACK_PATH.exists():
-        model = joblib.load(FALLBACK_PATH)
+    elif os.path.exists(MODEL_PATH):
+        model = joblib.load(MODEL_PATH)
         feature_columns = model.booster_.feature_name()
         source = "lightgbm_tuned.pkl (fallback)"
     else:
@@ -72,7 +72,7 @@ def load_pipeline():
     try:
         dump = model.booster_.dump_model()
         pandas_categorical = dump.get("pandas_categorical", [])
-        df_ref = pd.read_parquet(TRAIN_PATH).head(1)
+        df_ref = pd.read_parquet(DATA_PATH).head(1)
         cat_cols_ordered = [
             c for c in feature_columns
             if c in df_ref.columns and str(df_ref[c].dtype) in ("object", "category")
@@ -95,10 +95,10 @@ def load_and_score(n: int, seed: int = 42):
     # Ler colunas necessárias: TARGET + todas as features do modelo
     cols_to_read = ["TARGET"] + [c for c in feature_columns if c != "TARGET"]
     # Só ler colunas que existem no parquet
-    parquet_cols = pd.read_parquet(TRAIN_PATH).columns.tolist()
+    parquet_cols = pd.read_parquet(DATA_PATH).columns.tolist()
     cols_to_read = [c for c in cols_to_read if c in parquet_cols]
 
-    df = pd.read_parquet(TRAIN_PATH, columns=cols_to_read)
+    df = pd.read_parquet(DATA_PATH, columns=cols_to_read)
 
     # Amostra estratificada por TARGET
     parts = []
@@ -200,10 +200,10 @@ fig_dist.update_layout(
 st.plotly_chart(fig_dist, use_container_width=True)
 
 # Imagem OOF se disponível
-oof_img = FIGURES_DIR / "lightgbm_tuned_oof_distribution.png"
-if oof_img.exists():
+oof_img = os.path.join(REPORTS_PATH, "lightgbm_tuned_oof_distribution.png")
+if os.path.exists(oof_img):
     with st.expander("Ver distribuição OOF do modelo tuned (imagem salva)"):
-        st.image(str(oof_img), use_container_width=True)
+        st.image(oof_img, use_container_width=True)
 
 # ── Tabela de performance por decil ──────────────────────────────────────────
 st.markdown('<div class="section-title">Performance por Decil</div>', unsafe_allow_html=True)
@@ -407,11 +407,11 @@ available_figs = [
     ("roc_curve.png", "Curva ROC"),
     ("lift_curve.png", "Curva Lift"),
 ]
-existing = [(FIGURES_DIR / f, t) for f, t in available_figs if (FIGURES_DIR / f).exists()]
+existing = [(os.path.join(REPORTS_PATH, f), t) for f, t in available_figs if os.path.exists(os.path.join(REPORTS_PATH, f))]
 if existing:
     st.markdown('<div class="section-title">Figuras do Pipeline de Avaliação</div>', unsafe_allow_html=True)
     cols_fig = st.columns(len(existing))
     for col, (img_path, title) in zip(cols_fig, existing):
         with col:
             st.markdown(f"**{title}**")
-            st.image(str(img_path), use_container_width=True)
+            st.image(img_path, use_container_width=True)
