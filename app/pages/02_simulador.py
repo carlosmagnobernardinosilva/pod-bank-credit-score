@@ -26,7 +26,11 @@ THRESHOLD = 0.48
 # ── Carregar modelo ───────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Carregando modelo...")
 def load_pipeline():
-    """Carrega scoring_pipeline.pkl ou lightgbm_tuned.pkl como fallback."""
+    """
+    Carrega scoring_pipeline.pkl (ou lightgbm_tuned.pkl como fallback).
+    Extrai o mapeamento de colunas categóricas do booster para garantir
+    compatibilidade exata com o treinamento.
+    """
     if PIPELINE_PATH.exists():
         artifact = joblib.load(PIPELINE_PATH)
         model = artifact["model"]
@@ -34,18 +38,35 @@ def load_pipeline():
         source = f"scoring_pipeline.pkl (v{artifact.get('version', '?')})"
     elif FALLBACK_PATH.exists():
         model = joblib.load(FALLBACK_PATH)
-        # Derivar lista de features do booster
         try:
             feature_columns = model.booster_.feature_name()
         except AttributeError:
             feature_columns = [f"f{i}" for i in range(model.n_features_in_)]
         source = "lightgbm_tuned.pkl (fallback)"
     else:
-        return None, None, "Nenhum modelo encontrado em models/"
-    return model, feature_columns, source
+        return None, None, None, "Nenhum modelo encontrado em models/"
+
+    # Extrair mapeamento categórico: {coluna: [categorias]} na ordem do treino
+    # O booster armazena pandas_categorical em ordem das colunas categóricas
+    try:
+        dump = model.booster_.dump_model()
+        pandas_categorical = dump.get("pandas_categorical", [])
+        # Identificar quais feature_columns são categóricas lendo uma linha do parquet
+        df_ref = pd.read_parquet(
+            PROJECT_ROOT / "data" / "processed" / "train_final.parquet"
+        ).head(1)
+        cat_cols_ordered = [
+            c for c in feature_columns
+            if c in df_ref.columns and str(df_ref[c].dtype) in ("object", "category")
+        ]
+        cat_map = dict(zip(cat_cols_ordered, pandas_categorical))
+    except Exception:
+        cat_map = {}
+
+    return model, feature_columns, cat_map, source
 
 
-model, feature_columns, model_source = load_pipeline()
+model, feature_columns, cat_map, model_source = load_pipeline()
 
 # ── Estilos ───────────────────────────────────────────────────────────────────
 st.markdown(
@@ -166,9 +187,11 @@ if submitted:
             df_input[col] = np.nan
     df_input = df_input[feature_columns]
 
-    # Cast colunas object para category (LightGBM exige)
-    for col in df_input.select_dtypes(include="object").columns:
-        df_input[col] = df_input[col].astype("category")
+    # Aplicar dtype category com as categorias exatas do treinamento
+    # (necessário para compatibilidade com o LightGBM serializado)
+    for col, cats in cat_map.items():
+        if col in df_input.columns:
+            df_input[col] = pd.Categorical(df_input[col], categories=cats)
 
     # 3. Predição
     t0 = time.perf_counter()

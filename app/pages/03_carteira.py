@@ -1,12 +1,11 @@
 """
 03_carteira.py — PoD Bank Credit Score — Análise de Carteira
 """
-import sys
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -19,9 +18,10 @@ st.set_page_config(
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FIGURES_DIR = PROJECT_ROOT / "reports" / "figures"
+PIPELINE_PATH = PROJECT_ROOT / "models" / "scoring_pipeline.pkl"
+FALLBACK_PATH = PROJECT_ROOT / "models" / "lightgbm_tuned.pkl"
 TRAIN_PATH = PROJECT_ROOT / "data" / "processed" / "train_final.parquet"
-
+FIGURES_DIR = PROJECT_ROOT / "reports" / "figures"
 THRESHOLD = 0.48
 SAMPLE_N = 10_000
 
@@ -33,6 +33,12 @@ st.markdown(
         font-size: 1.2rem; font-weight: 600; color: #c0c0e0;
         margin: 28px 0 10px 0; border-left: 4px solid #2ecc71; padding-left: 10px;
     }
+    .kpi-mini {
+        background: #1e1e2e; border-radius: 10px; padding: 16px;
+        text-align: center; border: 1px solid #2d2d44;
+    }
+    .kpi-mini-label { font-size: 0.82rem; color: #a0a0b8; text-transform: uppercase; }
+    .kpi-mini-value { font-size: 1.8rem; font-weight: 700; color: #e0e0f0; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -40,155 +46,169 @@ st.markdown(
 
 st.markdown("## 📁 Análise de Carteira")
 st.markdown(
-    "<span style='color:#a0a0b8;'>Distribuição de scores, performance por decil e "
-    "matriz de confusão sobre a base de treino.</span>",
+    "<span style='color:#a0a0b8;'>Performance do modelo sobre amostra estratificada "
+    "da base de treino — scores reais via pipeline serializado.</span>",
     unsafe_allow_html=True,
 )
 st.markdown("---")
 
 
-# ── Carregamento de dados ─────────────────────────────────────────────────────
-@st.cache_data(show_spinner="Carregando base de dados...")
-def load_train_sample(path: Path, n: int, seed: int = 42) -> pd.DataFrame:
-    """Carrega amostra estratificada do train_final.parquet."""
-    df = pd.read_parquet(path, columns=["TARGET", "EXT_SOURCE_2", "EXT_SOURCE_3",
-                                         "EXT_SOURCE_1", "AMT_CREDIT", "credit_term",
-                                         "age_years", "DAYS_BIRTH"])
+# ── Carregar pipeline ─────────────────────────────────────────────────────────
+@st.cache_resource(show_spinner="Carregando modelo...")
+def load_pipeline():
+    if PIPELINE_PATH.exists():
+        art = joblib.load(PIPELINE_PATH)
+        model = art["model"]
+        feature_columns = art["feature_columns"]
+        source = f"scoring_pipeline.pkl (v{art.get('version','?')})"
+    elif FALLBACK_PATH.exists():
+        model = joblib.load(FALLBACK_PATH)
+        feature_columns = model.booster_.feature_name()
+        source = "lightgbm_tuned.pkl (fallback)"
+    else:
+        return None, None, None, "Nenhum modelo encontrado"
+
+    # Extrair mapeamento categórico do booster
+    try:
+        dump = model.booster_.dump_model()
+        pandas_categorical = dump.get("pandas_categorical", [])
+        df_ref = pd.read_parquet(TRAIN_PATH).head(1)
+        cat_cols_ordered = [
+            c for c in feature_columns
+            if c in df_ref.columns and str(df_ref[c].dtype) in ("object", "category")
+        ]
+        cat_map = dict(zip(cat_cols_ordered, pandas_categorical))
+    except Exception:
+        cat_map = {}
+
+    return model, feature_columns, cat_map, source
+
+
+# ── Carregar e pontuar amostra ────────────────────────────────────────────────
+@st.cache_data(show_spinner="Carregando e pontuando amostra...")
+def load_and_score(n: int, seed: int = 42):
+    """Lê amostra estratificada do parquet e aplica batch predict_proba."""
+    model, feature_columns, cat_map, source = load_pipeline()
+    if model is None:
+        return None, None
+
+    # Ler colunas necessárias: TARGET + todas as features do modelo
+    cols_to_read = ["TARGET"] + [c for c in feature_columns if c != "TARGET"]
+    # Só ler colunas que existem no parquet
+    parquet_cols = pd.read_parquet(TRAIN_PATH).columns.tolist()
+    cols_to_read = [c for c in cols_to_read if c in parquet_cols]
+
+    df = pd.read_parquet(TRAIN_PATH, columns=cols_to_read)
+
     # Amostra estratificada por TARGET
-    n_per_class = {0: int(n * 0.92), 1: int(n * 0.08)}
     parts = []
-    for cls, count in n_per_class.items():
+    for cls, frac in [(0, 0.92), (1, 0.08)]:
         sub = df[df["TARGET"] == cls]
+        count = int(n * frac)
         parts.append(sub.sample(min(count, len(sub)), random_state=seed))
-    return pd.concat(parts).reset_index(drop=True)
+    df_sample = pd.concat(parts).reset_index(drop=True)
+
+    # Alinhar features para o modelo
+    df_feat = df_sample.copy()
+    for col in feature_columns:
+        if col not in df_feat.columns:
+            df_feat[col] = np.nan
+    df_feat = df_feat[feature_columns]
+
+    # Aplicar categorias exatas do treinamento
+    for col, cats in cat_map.items():
+        if col in df_feat.columns:
+            df_feat[col] = pd.Categorical(df_feat[col], categories=cats)
+
+    # Batch predict (muito mais rápido que linha por linha)
+    scores = model.predict_proba(df_feat)[:, 1]
+
+    df_result = df_sample[["TARGET"]].copy()
+    df_result["score"] = scores
+    return df_result, source
 
 
-@st.cache_data(show_spinner="Gerando scores simulados...")
-def compute_proxy_scores(df: pd.DataFrame) -> pd.Series:
-    """
-    Score proxy baseado em EXT_SOURCEs para demonstração quando o pipeline
-    não está disponível.
-    """
-    e1 = df["EXT_SOURCE_1"].fillna(0.5)
-    e2 = df["EXT_SOURCE_2"].fillna(0.5)
-    e3 = df["EXT_SOURCE_3"].fillna(0.5)
-    raw = 1.0 - (0.35 * e2 + 0.35 * e3 + 0.30 * e1)
-    rng = np.random.default_rng(42)
-    noise = rng.normal(0, 0.08, size=len(df))
-    return pd.Series(np.clip(raw + noise, 0.0, 1.0), name="score")
+with st.spinner("Carregando dados e pontuando amostra..."):
+    df_scored, model_source = load_and_score(SAMPLE_N)
 
+if df_scored is None:
+    st.error("Pipeline não disponível. Verifique models/scoring_pipeline.pkl")
+    st.stop()
 
-# ── Tentar carregar dados reais ───────────────────────────────────────────────
-_data_available = False
-_score_source = "proxy"
+st.caption(
+    f"Modelo: {model_source} | Amostra: {len(df_scored):,} registros "
+    f"(estratificada 92% adimplentes / 8% inadimplentes) | Threshold: {THRESHOLD}"
+)
 
-if TRAIN_PATH.exists():
-    try:
-        df_sample = load_train_sample(TRAIN_PATH, SAMPLE_N)
-        _data_available = True
-    except Exception as e:
-        st.warning(f"Não foi possível carregar o parquet: {e}")
-else:
-    st.warning(
-        f"Arquivo `train_final.parquet` não encontrado em `{TRAIN_PATH}`. "
-        "Exibindo análise com dados simulados para demonstração."
-    )
+# ── KPIs de aprovação com threshold 0.48 ─────────────────────────────────────
+st.markdown('<div class="section-title">Taxa de Aprovação e Default Esperado — Threshold 0.48</div>', unsafe_allow_html=True)
 
-# ── Tentar scoring real ───────────────────────────────────────────────────────
-if _data_available:
-    try:
-        sys.path.insert(0, str(PROJECT_ROOT / "src"))
-        from models.predict import predict_score
+approved_mask = df_scored["score"] < THRESHOLD
+n_total = len(df_scored)
+n_approved = approved_mask.sum()
+n_rejected = n_total - n_approved
+approval_rate = n_approved / n_total
+default_rate_total = df_scored["TARGET"].mean()
+default_rate_approved = df_scored.loc[approved_mask, "TARGET"].mean()
+default_rate_rejected = df_scored.loc[~approved_mask, "TARGET"].mean()
+bads_captured = df_scored.loc[~approved_mask, "TARGET"].sum() / df_scored["TARGET"].sum()
 
-        @st.cache_data(show_spinner="Aplicando modelo aos dados...")
-        def score_batch(df: pd.DataFrame) -> pd.Series:
-            scores = []
-            cols = df.columns.tolist()
-            for _, row in df.iterrows():
-                try:
-                    r = predict_score(row[cols].to_dict())
-                    scores.append(r["score"])
-                except Exception:
-                    scores.append(np.nan)
-            return pd.Series(scores, name="score")
+kpis = [
+    ("Taxa de Aprovação", f"{approval_rate:.1%}", "#2ecc71"),
+    ("Default na Carteira Aprovada", f"{default_rate_approved:.2%}", "#f39c12"),
+    ("Default na Carteira Reprovada", f"{default_rate_rejected:.2%}", "#e74c3c"),
+    ("% Maus Capturados (Reprovados)", f"{bads_captured:.1%}", "#3498db"),
+    ("Default Geral da Base", f"{default_rate_total:.2%}", "#a0a0b8"),
+]
 
-        # Para performance, usar proxy se amostra > 500
-        if len(df_sample) <= 500:
-            scores = score_batch(df_sample)
-            _score_source = "model"
-        else:
-            scores = compute_proxy_scores(df_sample)
-            _score_source = "proxy"
-    except ImportError:
-        scores = compute_proxy_scores(df_sample)
-        _score_source = "proxy"
-else:
-    # Gerar dados sintéticos realistas
-    rng = np.random.default_rng(42)
-    n_good = int(SAMPLE_N * 0.92)
-    n_bad = SAMPLE_N - n_good
-    scores_good = np.clip(rng.beta(2.5, 5, n_good), 0, 1)
-    scores_bad = np.clip(rng.beta(4, 2.5, n_bad), 0, 1)
-    all_scores = np.concatenate([scores_good, scores_bad])
-    all_targets = np.array([0] * n_good + [1] * n_bad)
-    df_sample = pd.DataFrame({"TARGET": all_targets})
-    scores = pd.Series(all_scores, name="score")
-    _score_source = "synthetic"
+cols_kpi = st.columns(5)
+for col, (label, value, color) in zip(cols_kpi, kpis):
+    with col:
+        st.markdown(
+            f'<div class="kpi-mini">'
+            f'<div class="kpi-mini-label">{label}</div>'
+            f'<div class="kpi-mini-value" style="color:{color};">{value}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-df_sample = df_sample.copy()
-df_sample["score"] = scores.values if hasattr(scores, "values") else scores
-
-score_caption = {
-    "model": "Scores gerados pelo modelo LightGBM v2 Tuned",
-    "proxy": "Scores proxy baseados em EXT_SOURCE (demonstração)",
-    "synthetic": "Scores sintéticos para demonstração (parquet não disponível)",
-}.get(_score_source, "")
-st.caption(f"Fonte dos scores: {score_caption} | Amostra: {len(df_sample):,} registros")
-
-# ── Distribuição de scores por TARGET ────────────────────────────────────────
+# ── Histograma de scores por TARGET ──────────────────────────────────────────
 st.markdown('<div class="section-title">Distribuição de Scores por Classe (TARGET)</div>', unsafe_allow_html=True)
 
 fig_dist = go.Figure()
-for target_val, label, color in [(0, "Adimplente (TARGET=0)", "#2ecc71"),
-                                   (1, "Inadimplente (TARGET=1)", "#e74c3c")]:
-    subset = df_sample[df_sample["TARGET"] == target_val]["score"]
-    if len(subset) > 0:
-        fig_dist.add_trace(go.Histogram(
-            x=subset,
-            name=label,
-            nbinsx=50,
-            marker_color=color,
-            opacity=0.65,
-            histnorm="percent",
-        ))
+for target_val, label, color in [
+    (0, "Adimplente (TARGET=0)", "#2ecc71"),
+    (1, "Inadimplente (TARGET=1)", "#e74c3c"),
+]:
+    subset = df_scored[df_scored["TARGET"] == target_val]["score"]
+    fig_dist.add_trace(go.Histogram(
+        x=subset, name=label, nbinsx=50,
+        marker_color=color, opacity=0.65, histnorm="percent",
+    ))
 
 fig_dist.add_vline(
-    x=THRESHOLD,
-    line_dash="dash", line_color="white", line_width=2,
+    x=THRESHOLD, line_dash="dash", line_color="white", line_width=2,
     annotation_text=f"Threshold ({THRESHOLD})",
     annotation_font_color="white",
+    annotation_position="top right",
 )
 fig_dist.update_layout(
-    template="plotly_dark",
-    barmode="overlay",
-    xaxis_title="Score (P(default))",
-    yaxis_title="% da Classe",
-    height=380,
-    legend=dict(x=0.65, y=0.95),
+    template="plotly_dark", barmode="overlay",
+    xaxis_title="Score (P(default))", yaxis_title="% da Classe",
+    height=380, legend=dict(x=0.65, y=0.95),
 )
 st.plotly_chart(fig_dist, use_container_width=True)
 
-# Imagem salva se disponível
-score_img = FIGURES_DIR / "lightgbm_tuned_oof_distribution.png"
-if score_img.exists():
-    with st.expander("Ver distribuição OOF do modelo tuned (imagem)"):
-        st.image(str(score_img), use_container_width=True)
+# Imagem OOF se disponível
+oof_img = FIGURES_DIR / "lightgbm_tuned_oof_distribution.png"
+if oof_img.exists():
+    with st.expander("Ver distribuição OOF do modelo tuned (imagem salva)"):
+        st.image(str(oof_img), use_container_width=True)
 
 # ── Tabela de performance por decil ──────────────────────────────────────────
 st.markdown('<div class="section-title">Performance por Decil</div>', unsafe_allow_html=True)
 
-df_decil = df_sample[["TARGET", "score"]].copy().dropna()
-df_decil["decil"] = pd.qcut(df_decil["score"], q=10, labels=[f"D{i}" for i in range(1, 11)])
+df_decil = df_scored[["TARGET", "score"]].dropna().copy()
 df_decil["decil_num"] = pd.qcut(df_decil["score"], q=10, labels=False) + 1
 df_decil = df_decil.sort_values("decil_num")
 
@@ -199,114 +219,152 @@ decil_stats = (
         n_bad=("TARGET", "sum"),
         score_min=("score", "min"),
         score_max=("score", "max"),
-        score_mean=("score", "mean"),
+        score_medio=("score", "mean"),
     )
     .reset_index()
 )
 decil_stats["n_good"] = decil_stats["total"] - decil_stats["n_bad"]
 decil_stats["taxa_default"] = (decil_stats["n_bad"] / decil_stats["total"] * 100).round(2)
-decil_stats["pct_total"] = (decil_stats["total"] / decil_stats["total"].sum() * 100).round(1)
 
-# KS por decil
 total_bad = decil_stats["n_bad"].sum()
 total_good = decil_stats["n_good"].sum()
-decil_stats = decil_stats.sort_values("score_mean")
-decil_stats["cum_bad_rate"] = decil_stats["n_bad"].cumsum() / total_bad
-decil_stats["cum_good_rate"] = decil_stats["n_good"].cumsum() / total_good
-decil_stats["ks"] = (decil_stats["cum_bad_rate"] - decil_stats["cum_good_rate"]).abs().round(4)
+decil_stats = decil_stats.sort_values("score_medio")
+decil_stats["cum_bad_pct"] = (decil_stats["n_bad"].cumsum() / total_bad * 100).round(1)
+decil_stats["cum_good_pct"] = (decil_stats["n_good"].cumsum() / total_good * 100).round(1)
+decil_stats["ks"] = ((decil_stats["cum_bad_pct"] - decil_stats["cum_good_pct"]).abs() / 100).round(4)
 
-display_cols = {
+# Lift: (% maus capturados até decil X) / (% população até decil X)
+decil_stats["cum_pop_pct"] = (decil_stats["total"].cumsum() / decil_stats["total"].sum() * 100).round(1)
+decil_stats["lift"] = (decil_stats["cum_bad_pct"] / decil_stats["cum_pop_pct"]).round(2)
+
+display_df = decil_stats[[
+    "decil_num", "score_min", "score_max", "score_medio",
+    "total", "n_bad", "taxa_default", "cum_bad_pct", "cum_good_pct", "ks", "lift"
+]].rename(columns={
     "decil_num": "Decil",
     "score_min": "Score Min",
     "score_max": "Score Max",
-    "score_mean": "Score Médio",
+    "score_medio": "Score Médio",
     "total": "Total",
     "n_bad": "Inadimplentes",
-    "taxa_default": "Taxa Default (%)",
-    "cum_bad_rate": "% Maus Acum.",
-    "cum_good_rate": "% Bons Acum.",
+    "taxa_default": "Default (%)",
+    "cum_bad_pct": "% Maus Acum.",
+    "cum_good_pct": "% Bons Acum.",
     "ks": "KS",
-}
-df_display = decil_stats[list(display_cols.keys())].rename(columns=display_cols)
-df_display["Score Min"] = df_display["Score Min"].round(3)
-df_display["Score Max"] = df_display["Score Max"].round(3)
-df_display["Score Médio"] = df_display["Score Médio"].round(3)
-df_display["% Maus Acum."] = (df_display["% Maus Acum."] * 100).round(1).astype(str) + "%"
-df_display["% Bons Acum."] = (df_display["% Bons Acum."] * 100).round(1).astype(str) + "%"
+    "lift": "Lift",
+})
+for c in ["Score Min", "Score Max", "Score Médio"]:
+    display_df[c] = display_df[c].round(3)
 
 st.dataframe(
-    df_display.style.background_gradient(subset=["Taxa Default (%)"], cmap="RdYlGn_r"),
+    display_df.style.background_gradient(subset=["Default (%)"], cmap="RdYlGn_r"),
     use_container_width=True,
     hide_index=True,
 )
 
-# ── Gráfico de taxa de default por decil ─────────────────────────────────────
-col_bar, col_ks = st.columns(2)
+# ── Curva Lift e KS por decil ─────────────────────────────────────────────────
+st.markdown('<div class="section-title">Curva Lift e Curva KS por Decil</div>', unsafe_allow_html=True)
 
-with col_bar:
-    fig_decil = go.Figure(go.Bar(
-        x=[f"D{i}" for i in decil_stats["decil_num"]],
-        y=decil_stats["taxa_default"],
-        marker=dict(
-            color=decil_stats["taxa_default"],
-            colorscale=[[0, "#2ecc71"], [0.5, "#f39c12"], [1, "#e74c3c"]],
-        ),
-        text=decil_stats["taxa_default"].apply(lambda x: f"{x:.1f}%"),
-        textposition="outside",
+col_lift, col_ks = st.columns(2)
+
+with col_lift:
+    fig_lift = go.Figure()
+    fig_lift.add_trace(go.Scatter(
+        x=decil_stats["cum_pop_pct"],
+        y=decil_stats["cum_bad_pct"],
+        mode="lines+markers",
+        name="Modelo",
+        line=dict(color="#2ecc71", width=2.5),
+        marker=dict(size=7),
     ))
-    fig_decil.update_layout(
-        template="plotly_dark",
-        title="Taxa de Default por Decil",
-        xaxis_title="Decil de Score",
-        yaxis_title="Taxa de Default (%)",
-        height=340,
+    fig_lift.add_trace(go.Scatter(
+        x=[0, 100], y=[0, 100],
+        mode="lines", name="Aleatório",
+        line=dict(color="#666", dash="dash"),
+    ))
+    fig_lift.add_vline(
+        x=THRESHOLD * 100, line_dash="dot", line_color="#f39c12",
+        annotation_text=f"Threshold {THRESHOLD}",
+        annotation_font_color="#f39c12",
     )
-    st.plotly_chart(fig_decil, use_container_width=True)
+    fig_lift.update_layout(
+        template="plotly_dark",
+        title="Curva Lift (% Maus Capturados)",
+        xaxis_title="% da Carteira Revisada (por score crescente)",
+        yaxis_title="% dos Inadimplentes Capturados",
+        height=360,
+    )
+    st.plotly_chart(fig_lift, use_container_width=True)
 
 with col_ks:
-    ks_sorted = decil_stats.sort_values("score_mean")
-    fig_ks_decil = go.Figure()
-    fig_ks_decil.add_trace(go.Scatter(
-        x=list(range(1, 11)),
-        y=ks_sorted["cum_bad_rate"] * 100,
-        mode="lines+markers", name="% Maus Acum.", line=dict(color="#e74c3c"),
+    fig_ks = go.Figure()
+    fig_ks.add_trace(go.Scatter(
+        x=decil_stats["cum_pop_pct"],
+        y=decil_stats["cum_bad_pct"],
+        mode="lines+markers", name="% Maus Acum.",
+        line=dict(color="#e74c3c", width=2),
     ))
-    fig_ks_decil.add_trace(go.Scatter(
-        x=list(range(1, 11)),
-        y=ks_sorted["cum_good_rate"] * 100,
-        mode="lines+markers", name="% Bons Acum.", line=dict(color="#2ecc71"),
+    fig_ks.add_trace(go.Scatter(
+        x=decil_stats["cum_pop_pct"],
+        y=decil_stats["cum_good_pct"],
+        mode="lines+markers", name="% Bons Acum.",
+        line=dict(color="#2ecc71", width=2),
     ))
-    fig_ks_decil.update_layout(
+    max_ks_row = decil_stats.loc[decil_stats["ks"].idxmax()]
+    fig_ks.add_annotation(
+        x=max_ks_row["cum_pop_pct"],
+        y=(max_ks_row["cum_bad_pct"] + max_ks_row["cum_good_pct"]) / 2,
+        text=f"KS = {max_ks_row['ks']:.3f}",
+        showarrow=True, arrowhead=2, arrowcolor="#f39c12",
+        font=dict(color="#f39c12", size=13),
+    )
+    fig_ks.update_layout(
         template="plotly_dark",
         title="Curva KS por Decil",
-        xaxis_title="Decil", yaxis_title="% Acumulado",
-        height=340,
+        xaxis_title="% da Carteira (score crescente)",
+        yaxis_title="% Acumulado",
+        height=360,
     )
-    st.plotly_chart(fig_ks_decil, use_container_width=True)
+    st.plotly_chart(fig_ks, use_container_width=True)
+
+# ── Taxa de default por decil (barchart) ─────────────────────────────────────
+fig_bar = go.Figure(go.Bar(
+    x=[f"D{int(d)}" for d in decil_stats["decil_num"]],
+    y=decil_stats["taxa_default"],
+    marker=dict(
+        color=decil_stats["taxa_default"],
+        colorscale=[[0, "#2ecc71"], [0.5, "#f39c12"], [1, "#e74c3c"]],
+    ),
+    text=decil_stats["taxa_default"].apply(lambda x: f"{x:.1f}%"),
+    textposition="outside",
+))
+fig_bar.update_layout(
+    template="plotly_dark",
+    title="Taxa de Default por Decil de Score",
+    xaxis_title="Decil (D1 = menor score = menor risco)",
+    yaxis_title="Taxa de Default (%)",
+    height=320,
+)
+st.plotly_chart(fig_bar, use_container_width=True)
 
 # ── Matriz de confusão ────────────────────────────────────────────────────────
 st.markdown('<div class="section-title">Matriz de Confusão — Threshold 0.48</div>', unsafe_allow_html=True)
 
-df_cm = df_sample[["TARGET", "score"]].dropna()
-pred = (df_cm["score"] >= THRESHOLD).astype(int)
-actual = df_cm["TARGET"].astype(int)
+pred = (df_scored["score"] >= THRESHOLD).astype(int)
+actual = df_scored["TARGET"].astype(int)
 
 tn = int(((pred == 0) & (actual == 0)).sum())
 fp = int(((pred == 1) & (actual == 0)).sum())
 fn = int(((pred == 0) & (actual == 1)).sum())
 tp = int(((pred == 1) & (actual == 1)).sum())
+total = tn + fp + fn + tp
 
-col_cm_plot, col_cm_metrics = st.columns([2, 3])
+col_cm, col_metrics = st.columns([2, 3])
 
-with col_cm_plot:
-    z = [[tn, fp], [fn, tp]]
-    text_z = [
-        [f"TN\n{tn:,}", f"FP\n{fp:,}"],
-        [f"FN\n{fn:,}", f"TP\n{tp:,}"],
-    ]
+with col_cm:
     fig_cm = go.Figure(go.Heatmap(
-        z=z,
-        text=text_z,
+        z=[[tn, fp], [fn, tp]],
+        text=[[f"TN\n{tn:,}", f"FP\n{fp:,}"], [f"FN\n{fn:,}", f"TP\n{tp:,}"]],
         texttemplate="%{text}",
         x=["Pred: Adimplente", "Pred: Inadimplente"],
         y=["Real: Adimplente", "Real: Inadimplente"],
@@ -315,31 +373,26 @@ with col_cm_plot:
         textfont={"size": 14, "color": "white"},
     ))
     fig_cm.update_layout(
-        template="plotly_dark",
-        height=300,
+        template="plotly_dark", height=300,
         margin=dict(l=10, r=10, t=30, b=10),
     )
     st.plotly_chart(fig_cm, use_container_width=True)
 
-with col_cm_metrics:
-    total = tn + fp + fn + tp
-    accuracy = (tn + tp) / total if total > 0 else 0
+with col_metrics:
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
     recall_bad = tp / (tp + fn) if (tp + fn) > 0 else 0
     recall_good = tn / (tn + fp) if (tn + fp) > 0 else 0
     f1 = 2 * precision * recall_bad / (precision + recall_bad) if (precision + recall_bad) > 0 else 0
-    approval_rate = (tn + fn) / total if total > 0 else 0
 
     metrics = {
-        "Acurácia": f"{accuracy:.3f}",
+        "Acurácia": f"{(tn + tp) / total:.3f}",
         "Precisão (maus)": f"{precision:.3f}",
-        "Recall Maus Pagadores": f"{recall_bad:.3f}",
-        "Recall Bons Pagadores": f"{recall_good:.3f}",
+        "Recall — Maus Pagadores": f"{recall_bad:.3f}",
+        "Recall — Bons Pagadores": f"{recall_good:.3f}",
         "F1-Score": f"{f1:.3f}",
-        "Taxa de Aprovação": f"{approval_rate:.3f}",
+        "Taxa de Aprovação": f"{(tn + fn) / total:.3f}",
         "Total avaliado": f"{total:,}",
     }
-
     for k, v in metrics.items():
         st.markdown(
             f"<div style='padding:5px 0; border-bottom:1px solid #2d2d44;'>"
@@ -348,18 +401,17 @@ with col_cm_metrics:
             unsafe_allow_html=True,
         )
 
-# ── Imagens salvas ───────────────────────────────────────────────────────────
-if (FIGURES_DIR / "confusion_matrix.png").exists() or (FIGURES_DIR / "roc_curve.png").exists():
-    st.markdown('<div class="section-title">Figuras Geradas pelo Pipeline de Avaliação</div>', unsafe_allow_html=True)
-    fig_imgs = st.columns(3)
-    available_figs = [
-        ("confusion_matrix.png", "Matriz de Confusão"),
-        ("roc_curve.png", "Curva ROC"),
-        ("lift_curve.png", "Curva Lift"),
-    ]
-    for col, (fname, title) in zip(fig_imgs, available_figs):
-        img_path = FIGURES_DIR / fname
-        if img_path.exists():
-            with col:
-                st.markdown(f"**{title}**")
-                st.image(str(img_path), use_container_width=True)
+# ── Figuras salvas do pipeline de avaliação ───────────────────────────────────
+available_figs = [
+    ("confusion_matrix.png", "Matriz de Confusão"),
+    ("roc_curve.png", "Curva ROC"),
+    ("lift_curve.png", "Curva Lift"),
+]
+existing = [(FIGURES_DIR / f, t) for f, t in available_figs if (FIGURES_DIR / f).exists()]
+if existing:
+    st.markdown('<div class="section-title">Figuras do Pipeline de Avaliação</div>', unsafe_allow_html=True)
+    cols_fig = st.columns(len(existing))
+    for col, (img_path, title) in zip(cols_fig, existing):
+        with col:
+            st.markdown(f"**{title}**")
+            st.image(str(img_path), use_container_width=True)
