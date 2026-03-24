@@ -57,32 +57,51 @@ Desenvolver um **modelo de credit score** que estime a probabilidade de inadimpl
 ```
 pod-bank-credit-score/
 │
-├── data/                          # Dados (não versionados - ver .gitignore)
-│   ├── raw/                       # Dados brutos, exatamente como recebidos
-│   └── processed/                 # Dados finais prontos para modelagem
+├── .claude/                       # Configurações e agentes de IA (Claude)
+│   ├── agents                      
+│   └── hooks
 │
-├── notebooks/                     # Notebooks Jupyter por fase do CRISP-DM
-│   ├── 01_business_understanding/ # Análise do problema e hipóteses de negócio
-│   ├── 02_data_understanding/     # EDA, qualidade e distribuição dos dados
-│   ├── 03_data_preparation/       # Feature engineering e pré-processamento
-│   ├── 04_modeling/               # Treinamento e comparação de modelos
-│   ├── 05_evaluation/             # Avaliação de desempenho e análise de erros
-│   └── 06_deployment/             # Prototipação do pipeline de produção
+├── .venv/                         # Ambiente virtual (ignorado pelo Git)
 │
-├── src/                           # Código-fonte modularizado
-│   ├── data/                      # Scripts de ingestão e transformação de dados
-│   ├── features/                  # Construção e seleção de features
-│   ├── models/                    # Treinamento, tuning e serialização de modelos
-│   └── evaluation/                # Métricas customizadas e relatórios de performance
+├── app/                           # Aplicação web e dashboard
+│   ├── pages/                     # Páginas secundárias do dashboard
+│   ├── dashboard.py               # Arquivo principal do Streamlit
+│   └── requirements_dashboard.txt # Dependências exclusivas do dashboard
 │
-├── models/                        # Modelos serializados (não versionados)
+├── data/                          # Dados do projeto (ignorados pelo Git)
+│   ├── interim/                   # Dados intermediários (em transformação)
+│   ├── processed/                 # Dados finais prontos para modelagem
+│   └── raw/                       # Dados brutos originais
 │
-├── reports/                       # Relatórios e visualizações geradas
-│   └── figures/                   # Gráficos e imagens exportadas
+├── docs/                          # Documentação adicional do projeto
 │
-├── tests/                         # Testes unitários do código em src/
+├── mlruns/                        # Logs e rastreamento de experimentos de ML
 │
-├── .gitignore
+├── models/                        # Modelos e pipelines serializados (.pkl)
+│   ├── baseline_logistic_regression.pkl
+│   ├── imputer_ext_source_1.pkl
+│   ├── lightgbm_model.pkl
+│   ├── lightgbm_tuned.pkl
+│   ├── scoring_pipeline.pkl
+│   └── xgboost_model.pkl
+│
+├── notebooks/                     # Notebooks Jupyter de exploração e modelagem
+│   ├── 02_data_understanding/     # EDA e análise de qualidade dos dados
+│   └── 04_modeling/               # Treinamento e avaliação
+│
+├── reports/                       # Relatórios de performance e análises
+│   ├── figures/                   # Gráficos e imagens exportadas
+│   ├── pipeline_test_results.json # Resultados dos testes de pipeline
+│   └── *.md                       # Relatórios detalhados (avaliação, métricas, etc.)
+│
+├── src/                           # Código-fonte modularizado em Python
+│
+├── tests/                         # Scripts de testes automatizados
+│
+├── .gitignore                     # Regras de exclusão do Git
+└── activate.sh                    # Script de ativação do ambiente
+├── CLAUDE.md                      # Contexto do projeto
+├── mlflow.db                      
 ├── requirements.txt               # Dependências do projeto
 └── README.md
 ```
