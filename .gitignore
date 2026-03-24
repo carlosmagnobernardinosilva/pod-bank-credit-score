@@ -4,8 +4,8 @@ data/
 *.xlsx
 *.parquet
 
-# Modelos serializados
-models/
+# Modelos serializados (binários — não versionar)
+/models/
 *.pkl
 *.joblib
 *.h5
@@ -32,3 +32,5 @@ Thumbs.db
 
 #Claude
 .claude/settings.local.json
+mlruns/
+.venv/

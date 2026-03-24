@@ -1,0 +1,184 @@
+{
+  "avg_inference_ms": 7.76,
+  "max_inference_ms": 8.02,
+  "sla_pass": "True",
+  "rows": [
+    {
+      "SK_ID_CURR": 204040,
+      "TARGET_real": 0,
+      "score": 0.3727,
+      "decision": "APROVADO",
+      "risk_band": "MEDIO",
+      "inference_ms": 7.84
+    },
+    {
+      "SK_ID_CURR": 151722,
+      "TARGET_real": 0,
+      "score": 0.1087,
+      "decision": "APROVADO",
+      "risk_band": "BAIXO",
+      "inference_ms": 8.02
+    },
+    {
+      "SK_ID_CURR": 349833,
+      "TARGET_real": 1,
+      "score": 0.5225,
+      "decision": "REPROVADO",
+      "risk_band": "ALTO",
+      "inference_ms": 7.98
+    },
+    {
+      "SK_ID_CURR": 121179,
+      "TARGET_real": 1,
+      "score": 0.7526,
+      "decision": "REPROVADO",
+      "risk_band": "ALTO",
+      "inference_ms": 7.62
+    },
+    {
+      "SK_ID_CURR": 367944,
+      "TARGET_real": 0,
+      "score": 0.4676,
+      "decision": "APROVADO",
+      "risk_band": "MEDIO",
+      "inference_ms": 7.36
+    }
+  ],
+  "top_factors": {
+    "204040": [
+      {
+        "feature": "EXT_SOURCE_2",
+        "value": 0.6110443737824971,
+        "importance": 240284.47694015503
+      },
+      {
+        "feature": "EXT_SOURCE_3",
+        "value": 0.5370699579791587,
+        "importance": 232392.47981262207
+      },
+      {
+        "feature": "ORGANIZATION_TYPE",
+        "value": "Legal Services",
+        "importance": 164402.1438484192
+      },
+      {
+        "feature": "EXT_SOURCE_1",
+        "value": 0.37141880376047764,
+        "importance": 152567.3351726532
+      },
+      {
+        "feature": "credit_term",
+        "value": 30.125018828136767,
+        "importance": 88614.72835159302
+      }
+    ],
+    "151722": [
+      {
+        "feature": "EXT_SOURCE_2",
+        "value": 0.447468253572534,
+        "importance": 240284.47694015503
+      },
+      {
+        "feature": "EXT_SOURCE_3",
+        "value": 0.5334816299804352,
+        "importance": 232392.47981262207
+      },
+      {
+        "feature": "ORGANIZATION_TYPE",
+        "value": "School",
+        "importance": 164402.1438484192
+      },
+      {
+        "feature": "EXT_SOURCE_1",
+        "value": 0.5370277072701881,
+        "importance": 152567.3351726532
+      },
+      {
+        "feature": "credit_term",
+        "value": 10.058645814821396,
+        "importance": 88614.72835159302
+      }
+    ],
+    "349833": [
+      {
+        "feature": "EXT_SOURCE_2",
+        "value": 0.1838814747639154,
+        "importance": 240284.47694015503
+      },
+      {
+        "feature": "EXT_SOURCE_3",
+        "value": 0.5370699579791587,
+        "importance": 232392.47981262207
+      },
+      {
+        "feature": "ORGANIZATION_TYPE",
+        "value": "Industry: type 9",
+        "importance": 164402.1438484192
+      },
+      {
+        "feature": "EXT_SOURCE_1",
+        "value": 0.3956795182815413,
+        "importance": 152567.3351726532
+      },
+      {
+        "feature": "credit_term",
+        "value": 22.552894675656823,
+        "importance": 88614.72835159302
+      }
+    ],
+    "121179": [
+      {
+        "feature": "EXT_SOURCE_2",
+        "value": 0.3632339568478801,
+        "importance": 240284.47694015503
+      },
+      {
+        "feature": "EXT_SOURCE_3",
+        "value": 0.237916079507114,
+        "importance": 232392.47981262207
+      },
+      {
+        "feature": "ORGANIZATION_TYPE",
+        "value": "Unknown",
+        "importance": 164402.1438484192
+      },
+      {
+        "feature": "EXT_SOURCE_1",
+        "value": 0.6360354517610611,
+        "importance": 152567.3351726532
+      },
+      {
+        "feature": "credit_term",
+        "value": 18.955584415584415,
+        "importance": 88614.72835159302
+      }
+    ],
+    "367944": [
+      {
+        "feature": "EXT_SOURCE_2",
+        "value": 0.0274044477937128,
+        "importance": 240284.47694015503
+      },
+      {
+        "feature": "EXT_SOURCE_3",
+        "value": 0.6986675550534175,
+        "importance": 232392.47981262207
+      },
+      {
+        "feature": "ORGANIZATION_TYPE",
+        "value": "Business Entity Type 3",
+        "importance": 164402.1438484192
+      },
+      {
+        "feature": "EXT_SOURCE_1",
+        "value": 0.6646701413049231,
+        "importance": 152567.3351726532
+      },
+      {
+        "feature": "credit_term",
+        "value": 25.580665411173886,
+        "importance": 88614.72835159302
+      }
+    ]
+  }
+}

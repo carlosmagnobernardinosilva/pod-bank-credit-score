@@ -178,3 +178,60 @@ Todas as tabelas secundárias exigem **agregação por `SK_ID_CURR`** antes de f
 - **Explainability required**: model decisions must be justifiable (use SHAP or similar)
 - **Inference latency**: < 500ms per applicant in production
 - **No data in git**: all `data/` and `models/` output is gitignored
+
+## Data Preparation — Fase 3 Concluída
+
+**Data:** 2026-03-23
+**Status:** Concluída
+
+### Outputs Gerados
+
+| Arquivo | Localização | Shape | Descrição |
+|---|---|---|---|
+| `application_clean.parquet` | `data/interim/` | (307,511 × 178) | Aplicações limpas com tratamentos aplicados e features derivadas |
+| `bureau_features.parquet` | `data/interim/` | (305,811 × 10) | Features agregadas do bureau de crédito |
+| `prev_app_features.parquet` | `data/interim/` | (338,857 × 11) | Features de aplicações anteriores |
+| `pos_cash_features.parquet` | `data/interim/` | (337,252 × 9) | Features de saldos POS/cash |
+| `credit_card_features.parquet` | `data/interim/` | (103,558 × 11) | Features de cartão de crédito |
+| `installments_features.parquet` | `data/interim/` | (339,587 × 10) | Features de pagamentos de parcelas |
+| `train_final.parquet` | `data/processed/` | (215,257 × 223) | Dataset de treino com todas as features |
+| `test_final.parquet` | `data/processed/` | (92,254 × 223) | Dataset de teste com todas as features |
+
+### Alerta Pendente
+- `bureau_max_overdue`: ~30.4% de nulos — decisão pendente entre imputação por mediana ou criação de flag binário `bureau_had_overdue`
+
+## Modeling — Fase 4 Concluída
+
+**Data:** 2026-03-23
+**Status:** Concluída — todos os modelos APROVADOS
+
+### Resultados dos Modelos (CV 5-fold)
+
+| Modelo | AUC-ROC | KS | Gini | Status | MLflow Run ID |
+|---|---|---|---|---|---|
+| Logistic Regression (baseline) | 0.7559 ± 0.0027 | 0.3857 ± 0.0054 | 0.5117 ± 0.0055 | APROVADO | `53e25c53f91b43708d40876fee99d7b7` |
+| LightGBM v1 | 0.7701 ± 0.0031 | 0.4105 ± 0.0035 | 0.5401 ± 0.0062 | APROVADO | `32a8dd5fd7ca45cda61f7dbb8d1531d1` |
+| XGBoost v1 | 0.7698 ± 0.0036 | 0.4065 ± 0.0083 | 0.5396 ± 0.0071 | APROVADO | `e6baf972d9334ae1b88db1782fff614f` |
+
+Targets mínimos: AUC-ROC >= 0.72, KS >= 0.32, Gini >= 0.42 (todos atingidos)
+
+### Modelos Salvos
+
+| Arquivo | Localização | Descrição |
+|---|---|---|
+| `baseline_logistic_regression.pkl` | `models/` | Pipeline sklearn com OrdinalEncoder + StandardScaler + LR |
+| `lightgbm_model.pkl` | `models/` | LGBMClassifier, n_estimators=221 (best via early stopping) |
+| `xgboost_model.pkl` | `models/` | XGBClassifier, n_estimators=241 (best via early stopping) |
+
+### Top Features (consistentes entre modelos)
+
+`EXT_SOURCE_2`, `EXT_SOURCE_3`, `EXT_SOURCE_1`, `credit_term`, `inst_late_rate`, `ORGANIZATION_TYPE`, `OCCUPATION_TYPE`
+
+### Scripts de Modeling
+
+| Script | Localização |
+|---|---|
+| Baseline LR | `src/models/task1_baseline_lr.py` |
+| LightGBM | `src/models/task2_lightgbm.py` |
+| XGBoost | `src/models/task3_xgboost.py` |
+| MLflow setup (corrigido para Windows) | `src/models/mlflow_setup.py` |
