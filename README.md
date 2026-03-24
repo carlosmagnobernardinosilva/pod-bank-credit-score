@@ -146,6 +146,9 @@ Business Understanding → Data Understanding → Data Preparation
         ↑                                              ↓
    Deployment          ←      Evaluation      ←   Modeling
 ```
+---
+Link Resultados finais StreamLit: https://pod-bank-credit-score.streamlit.app/simulador
+```
 
 
 
