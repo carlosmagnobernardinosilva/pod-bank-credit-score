@@ -8,7 +8,7 @@ Modelo de score de risco de crédito desenvolvido seguindo o framework **CRISP-D
 
 ### Contexto
 
-A **PoD Bank** é uma startup financeira focada em concessão de crédito para a população desbancarizada e com histórico de crédito escasso ou inexistente — perfil frequentemente rejeitado pelas instituições tradicionais.
+A **PoD Bank** é uma startup financeira focada em concessão de crédito para a população desbancarizada e com histórico de crédito escasso ou inexistente, perfil frequentemente rejeitado pelas instituições tradicionais.
 
 Sem acesso a dados robustos de bureaus de crédito convencionais, a empresa precisa desenvolver sua própria capacidade analítica para distinguir bons e maus pagadores, viabilizando uma operação de crédito sustentável e inclusiva.
 
