@@ -4,7 +4,7 @@ Modelo de score de risco de crédito desenvolvido seguindo o framework **CRISP-D
 
 ### Dados disponiveis em (https://www.kaggle.com/competitions/pod-academy-analise-de-credito-para-fintech/data)
 
-### Resumo Resultados Finais: ([https://pod-bank-credit-score.streamlit.app/simulador](https://pod-bank-credit-score.streamlit.app/modelo))
+### Resumo Resultados Finais: (https://pod-bank-credit-score.streamlit.app/simulador](https://pod-bank-credit-score.streamlit.app/modelo)
 ---
 
 ## 1. Entendimento do Negócio
